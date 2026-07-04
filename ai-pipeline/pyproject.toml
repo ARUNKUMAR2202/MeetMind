@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meetmind-ai"
+version = "0.1.0"
+description = "MeetMind AI pipeline: transcription, diarization, summarization, quiz generation, RAG"
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=1.30.0",
+    "pinecone>=5.0.0",
+    "pydantic>=2.6.0",
+    "python-dotenv>=1.0.1",
+    "tenacity>=8.2.3",
+    "numpy>=1.26.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["meetmind_ai*"]

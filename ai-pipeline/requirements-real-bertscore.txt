@@ -1,0 +1,5 @@
+# Optional — only needed if USE_REAL_BERTSCORE=true (see real_bertscore.py).
+# Pulls in `transformers` + downloads a scoring model on first use.
+#
+# Install with: pip install -r requirements-real-bertscore.txt
+bert-score>=0.3.13
