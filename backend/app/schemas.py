@@ -75,6 +75,26 @@ class SessionListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RoomCreate(BaseModel):
+    host_id: str
+    display_name: str | None = None
+
+
+class RoomOut(BaseModel):
+    id: str
+    code: str
+    host_id: str
+    status: str
+    created_at: datetime
+    ended_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RoomEndIn(BaseModel):
+    user_id: str
+
+
 class DocumentOut(BaseModel):
     id: str
     title: str

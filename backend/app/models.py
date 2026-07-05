@@ -62,6 +62,43 @@ class MeetingSession(Base):
     )
 
 
+class Room(Base):
+    """A live video-conference meeting (Phase 1). Decoupled from MeetingSession —
+    a room is just "people on a call"; Phase 3 links a recording session to the
+    room it was captured in. host_id/participant.user_id are free-form guest ids
+    for now (see services/room_manager.py's WS handshake) — Phase 2 swaps these
+    for real auth.users ids and adds RLS once Supabase Auth is wired in."""
+
+    __tablename__ = "rooms"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    code: Mapped[str] = mapped_column(String, unique=True, index=True)
+    host_id: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, default="live")  # scheduled | live | ended
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    participants: Mapped[list["Participant"]] = relationship(
+        back_populates="room", cascade="all, delete-orphan",
+    )
+
+
+class Participant(Base):
+    """One join for one person in one room. A person who leaves and rejoins gets a
+    second row — this is a log of visits, not a membership roster."""
+
+    __tablename__ = "participants"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"))
+    user_id: Mapped[str] = mapped_column(String)
+    display_name: Mapped[str] = mapped_column(String)
+    joined_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    left_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    room: Mapped["Room"] = relationship(back_populates="participants")
+
+
 class ReferenceDocument(Base):
     """A document uploaded for RAG retrieval (Layer 6) — slides, briefs, etc."""
 

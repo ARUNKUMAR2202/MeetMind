@@ -13,6 +13,9 @@ export function Navbar() {
           MeetMind <span className="text-signal">AI</span>
         </Link>
         <nav className="flex items-center gap-2 font-body text-sm text-muted sm:gap-4">
+          <Link href="/meet" className="hover:text-paper">
+            Meet
+          </Link>
           {user ? (
             <>
               <Link href="/sessions" className="hover:text-paper">
