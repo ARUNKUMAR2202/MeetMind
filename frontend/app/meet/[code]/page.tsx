@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Captions,
   Check,
+  Circle,
   Link as LinkIcon,
   Mic,
   MicOff,
@@ -13,6 +15,7 @@ import {
   Video,
   VideoOff,
 } from "lucide-react";
+import { useAuth } from "../../lib/auth-context";
 import { getGuestId, getStoredDisplayName, setStoredDisplayName } from "../../lib/guest";
 import { roomsApi, RoomOut } from "../../lib/roomsApi";
 import { useMeetRoom } from "../../lib/useMeetRoom";
@@ -25,6 +28,7 @@ export default function MeetRoomPage({ params }: { params: { code: string } }) {
   const router = useRouter();
   const code = params.code.toUpperCase();
   const guestId = getGuestId();
+  const { token, user } = useAuth();
 
   const [room, setRoom] = useState<RoomOut | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -32,6 +36,7 @@ export default function MeetRoomPage({ params }: { params: { code: string } }) {
   const [displayName, setDisplayName] = useState(getStoredDisplayName());
   const [showParticipants, setShowParticipants] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [recordingNotice, setRecordingNotice] = useState(false);
 
   useEffect(() => {
     roomsApi
@@ -58,7 +63,20 @@ export default function MeetRoomPage({ params }: { params: { code: string } }) {
     error,
     leave,
     endForEveryone,
-  } = useMeetRoom(joined ? room?.id ?? "" : "", guestId, displayName || "Guest");
+    recording,
+    startRecording,
+    stopRecording,
+    captionsOn,
+    toggleCaptions,
+    captions,
+  } = useMeetRoom(
+    joined ? room?.id ?? "" : "",
+    guestId,
+    displayName || "Guest",
+    token,
+    `Meeting ${code}`,
+    user?.account_type ?? "professional",
+  );
 
   useEffect(() => {
     if (state === "left" || state === "ended") {
@@ -66,6 +84,16 @@ export default function MeetRoomPage({ params }: { params: { code: string } }) {
       return () => clearTimeout(t);
     }
   }, [state, router]);
+
+  async function handleToggleRecording() {
+    if (recording) {
+      await stopRecording();
+      setRecordingNotice(true);
+      setTimeout(() => setRecordingNotice(false), 6000);
+    } else {
+      await startRecording();
+    }
+  }
 
   async function copyInviteLink() {
     try {
@@ -156,9 +184,23 @@ export default function MeetRoomPage({ params }: { params: { code: string } }) {
               {state === "connected" && (
                 <>
                   <Users size={12} /> {gridParticipants.length} in the room
+                  {recording && (
+                    <span className="ml-2 flex items-center gap-1 text-red-400">
+                      <Circle size={8} className="fill-red-400" /> Recording
+                    </span>
+                  )}
                 </>
               )}
             </p>
+            {recordingNotice && (
+              <p className="mt-1 font-body text-xs text-muted">
+                Recording saved — the transcript will appear in{" "}
+                <button onClick={() => router.push("/sessions")} className="underline hover:text-paper">
+                  Sessions
+                </button>{" "}
+                once processing finishes.
+              </p>
+            )}
           </div>
           <button
             onClick={copyInviteLink}
@@ -169,10 +211,22 @@ export default function MeetRoomPage({ params }: { params: { code: string } }) {
           </button>
         </div>
 
-        <div className="grid flex-1 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {gridParticipants.map((p) => (
-            <VideoTile key={p.peerId} stream={p.stream} label={p.name} muted={p.isLocal} mirrored={p.isLocal} />
-          ))}
+        <div className="relative flex-1">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {gridParticipants.map((p) => (
+              <VideoTile key={p.peerId} stream={p.stream} label={p.name} muted={p.isLocal} mirrored={p.isLocal} />
+            ))}
+          </div>
+          {captionsOn && Object.keys(captions).length > 0 && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-1 pb-2">
+              {Object.entries(captions).map(([peerId, c]) => (
+                <span key={peerId} className="rounded bg-ink/80 px-3 py-1 font-body text-sm text-paper">
+                  <span className="text-muted">{c.name}: </span>
+                  {c.text}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="mt-8 flex items-center justify-center gap-4">
@@ -212,6 +266,31 @@ export default function MeetRoomPage({ params }: { params: { code: string } }) {
           >
             <Users size={20} />
           </button>
+          <button
+            onClick={toggleCaptions}
+            aria-label={captionsOn ? "Turn off live captions" : "Turn on live captions"}
+            className={`flex h-12 w-12 items-center justify-center rounded-full border transition ${
+              captionsOn ? "border-signal bg-signal/20 text-signal" : "border-border text-paper hover:border-muted"
+            }`}
+          >
+            <Captions size={20} />
+          </button>
+          {isHost && (
+            <button
+              onClick={handleToggleRecording}
+              disabled={!user}
+              title={user ? undefined : "Log in to record meetings"}
+              aria-label={recording ? "Stop recording" : "Start recording"}
+              className={`flex h-12 items-center gap-2 rounded-full border px-4 font-body text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                recording
+                  ? "border-red-500 bg-red-500/20 text-red-400"
+                  : "border-border text-paper hover:border-muted"
+              }`}
+            >
+              <Circle size={14} className={recording ? "fill-red-400" : ""} />
+              {recording ? "Stop recording" : "Record"}
+            </button>
+          )}
           <button
             onClick={leave}
             aria-label="Leave meeting"

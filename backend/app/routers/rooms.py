@@ -20,6 +20,16 @@ Client -> server, host only, ends the meeting for everyone:
     {"type": "end-room"}
 Server -> every peer (including the sender), once a host sends "end-room":
     {"type": "room-ended"}
+Client -> server, live-caption text from that participant's own speech recognition:
+    {"type": "caption", "text": "...", "final": true|false}
+Server -> other peers, relaying it:
+    {"type": "caption", "peer_id": "<sender_peer_id>", "text": "...", "final": true|false}
+Client -> server, host only, toggles the recording indicator (the host's browser
+does the actual mixing/uploading — this message is just so every participant's UI
+reflects it):
+    {"type": "recording-state", "recording": true|false}
+Server -> every peer (including the sender):
+    {"type": "recording-state", "recording": true|false}
 
 The join convention (to avoid double-offers in mesh topology): a NEW peer creates an
 offer to each peer already in the room (from the `peers` list in "welcome"). Existing
@@ -137,6 +147,23 @@ async def room_signaling(websocket: WebSocket, room_id: str, user_id: str = Quer
                         room.ended_at = _now()
                         db.commit()
                         await manager.broadcast(room_id, {"type": "room-ended"})
+                elif msg_type == "caption":
+                    await manager.broadcast(
+                        room_id,
+                        {
+                            "type": "caption",
+                            "peer_id": peer_id,
+                            "text": str(message.get("text", ""))[:500],
+                            "final": bool(message.get("final")),
+                        },
+                        exclude=peer_id,
+                    )
+                elif msg_type == "recording-state":
+                    db.refresh(room)
+                    if user_id == room.host_id:
+                        await manager.broadcast(
+                            room_id, {"type": "recording-state", "recording": bool(message.get("recording"))},
+                        )
                 # Unknown message types are ignored rather than closing the connection —
                 # keeps the protocol easy to extend (e.g. a future "chat" message type)
                 # without breaking older clients.

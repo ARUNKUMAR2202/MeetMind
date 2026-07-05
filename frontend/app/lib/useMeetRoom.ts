@@ -10,11 +10,18 @@
  * restrictive/symmetric NATs may fail to connect; add a TURN server before relying
  * on this across arbitrary networks.
  *
- * Unlike useMeetingRoom.ts (the existing recording-linked hook), this one does not
- * record or upload audio anywhere — Phase 1 is the live call only. Recording lands
- * in Phase 3, at which point a room can be linked to a MeetingSession.
+ * Phase 3: recording is host-only (a MeetingSession needs a real owner_id, and
+ * guest rooms have no login) and mirrors the mixing approach in useMeetingRoom.ts —
+ * the host's browser mixes every participant's audio via Web Audio API, records it,
+ * and uploads it through the existing api.createLiveSession/attachAudio endpoints
+ * once stopped. Live captions are separate and available to everyone: each
+ * participant's own browser transcribes their own mic locally via the Web Speech
+ * API and broadcasts the text over the room's signaling WebSocket — no backend ASR
+ * service involved, so it only works in browsers that support
+ * (webkit)SpeechRecognition (Chrome/Edge; not Firefox).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { api, SessionType } from "./api";
 import { roomsApi } from "./roomsApi";
 
 const ICE_SERVERS: RTCConfiguration = {
@@ -29,6 +36,11 @@ interface RemoteParticipant {
 
 export type MeetState = "connecting" | "connected" | "leaving" | "left" | "ended" | "error";
 
+interface CaptionEntry {
+  name: string;
+  text: string;
+}
+
 interface SignalMessage {
   type: string;
   peer_id?: string;
@@ -36,9 +48,46 @@ interface SignalMessage {
   name?: string;
   from?: string;
   data?: { kind: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
+  text?: string;
+  final?: boolean;
+  recording?: boolean;
 }
 
-export function useMeetRoom(roomId: string, userId: string, displayName: string) {
+interface SpeechRecognitionResultLike {
+  isFinal: boolean;
+  0: { transcript: string };
+}
+interface SpeechRecognitionEventLike extends Event {
+  results: { length: number; [index: number]: SpeechRecognitionResultLike };
+}
+interface SpeechRecognitionLike extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start(): void;
+  stop(): void;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+}
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
+  const w = window as unknown as {
+    SpeechRecognition?: SpeechRecognitionCtor;
+    webkitSpeechRecognition?: SpeechRecognitionCtor;
+  };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
+
+export function useMeetRoom(
+  roomId: string,
+  userId: string,
+  displayName: string,
+  token: string | null,
+  sessionTitle: string,
+  sessionType: SessionType,
+) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [participants, setParticipants] = useState<Record<string, RemoteParticipant>>({});
   const [micOn, setMicOn] = useState(true);
@@ -46,6 +95,9 @@ export function useMeetRoom(roomId: string, userId: string, displayName: string)
   const [screenSharing, setScreenSharing] = useState(false);
   const [state, setState] = useState<MeetState>("connecting");
   const [error, setError] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [captionsOn, setCaptionsOn] = useState(false);
+  const [captions, setCaptions] = useState<Record<string, CaptionEntry>>({});
 
   const socketRef = useRef<WebSocket | null>(null);
   const myPeerIdRef = useRef<string | null>(null);
@@ -53,9 +105,45 @@ export function useMeetRoom(roomId: string, userId: string, displayName: string)
   const pendingCandidatesRef = useRef<Record<string, RTCIceCandidateInit[]>>({});
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
+  const participantsRef = useRef<Record<string, RemoteParticipant>>({});
+
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const mixDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const sessionIdRef = useRef<string | null>(null);
+
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const captionTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  useEffect(() => {
+    participantsRef.current = participants;
+  }, [participants]);
 
   const send = useCallback((message: object) => {
     socketRef.current?.readyState === WebSocket.OPEN && socketRef.current.send(JSON.stringify(message));
+  }, []);
+
+  const showCaption = useCallback((key: string, name: string, text: string) => {
+    setCaptions((prev) => ({ ...prev, [key]: { name, text } }));
+    clearTimeout(captionTimersRef.current[key]);
+    captionTimersRef.current[key] = setTimeout(() => {
+      setCaptions((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }, 4000);
+  }, []);
+
+  const addToMix = useCallback((stream: MediaStream | null | undefined) => {
+    const ctx = audioContextRef.current;
+    const dest = mixDestRef.current;
+    if (!ctx || !dest || !stream) return;
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length === 0) return;
+    const source = ctx.createMediaStreamSource(new MediaStream(audioTracks));
+    source.connect(dest);
   }, []);
 
   const getOrCreatePeerConnection = useCallback((peerId: string): RTCPeerConnection => {
@@ -77,6 +165,7 @@ export function useMeetRoom(roomId: string, userId: string, displayName: string)
 
     pc.ontrack = (event) => {
       const stream = event.streams[0];
+      addToMix(stream);
       setParticipants((prev) => ({
         ...prev,
         [peerId]: { peerId, name: prev[peerId]?.name ?? null, stream },
@@ -90,7 +179,7 @@ export function useMeetRoom(roomId: string, userId: string, displayName: string)
     };
 
     return pc;
-  }, [send]);
+  }, [addToMix, send]);
 
   const flushPendingCandidates = useCallback(async (peerId: string, pc: RTCPeerConnection) => {
     const queued = pendingCandidatesRef.current[peerId] || [];
@@ -132,19 +221,59 @@ export function useMeetRoom(roomId: string, userId: string, displayName: string)
     }
   }, [flushPendingCandidates, getOrCreatePeerConnection, send]);
 
+  const stopRecordingInternal = useCallback(async () => {
+    const recorder = recorderRef.current;
+    const currentSessionId = sessionIdRef.current;
+    if (!recorder || !currentSessionId) return;
+
+    const recordingDone = new Promise<Blob>((resolve) => {
+      if (recorder.state === "inactive") {
+        resolve(new Blob(chunksRef.current, { type: "audio/webm" }));
+        return;
+      }
+      recorder.onstop = () => resolve(new Blob(chunksRef.current, { type: "audio/webm" }));
+      recorder.stop();
+    });
+
+    const blob = await recordingDone;
+    audioContextRef.current?.close();
+    audioContextRef.current = null;
+    mixDestRef.current = null;
+    recorderRef.current = null;
+    sessionIdRef.current = null;
+    setRecording(false);
+
+    if (blob.size > 0) {
+      try {
+        await api.attachAudio(token, currentSessionId, blob, "meeting.webm");
+      } catch {
+        /* upload failed — the session shell stays in "live" status, nothing more we can do here */
+      }
+    }
+  }, [token]);
+
   const cleanup = useCallback(() => {
     socketRef.current?.close();
     Object.values(peerConnectionsRef.current).forEach((pc) => pc.close());
     peerConnectionsRef.current = {};
     cameraStreamRef.current?.getTracks().forEach((t) => t.stop());
     screenStreamRef.current?.getTracks().forEach((t) => t.stop());
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
+    audioContextRef.current?.close();
+    audioContextRef.current = null;
+    mixDestRef.current = null;
+    recorderRef.current = null;
   }, []);
 
   useEffect(() => {
+    if (!roomId) return;
     let cancelled = false;
 
     async function join() {
       try {
+        setError(null);
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
@@ -202,6 +331,15 @@ export function useMeetRoom(roomId: string, userId: string, displayName: string)
                 delete next[message.peer_id!];
                 return next;
               });
+              break;
+            case "caption":
+              if (message.peer_id && message.text) {
+                const name = participantsRef.current[message.peer_id]?.name ?? "Someone";
+                showCaption(message.peer_id, name, message.text);
+              }
+              break;
+            case "recording-state":
+              setRecording(Boolean(message.recording));
               break;
             case "room-ended":
               cleanup();
@@ -293,15 +431,98 @@ export function useMeetRoom(roomId: string, userId: string, displayName: string)
     }
   }, [screenSharing, replaceOutgoingVideoTrack]);
 
-  const leave = useCallback(() => {
+  const startRecording = useCallback(async () => {
+    if (recording) return;
+
+    const AudioContextCtor =
+      window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new AudioContextCtor();
+    audioContextRef.current = ctx;
+    mixDestRef.current = ctx.createMediaStreamDestination();
+
+    addToMix(cameraStreamRef.current);
+    Object.values(participantsRef.current).forEach((p) => addToMix(p.stream));
+
+    const recorder = new MediaRecorder(mixDestRef.current.stream, { mimeType: "audio/webm" });
+    chunksRef.current = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunksRef.current.push(e.data);
+    };
+    recorder.start(1000);
+    recorderRef.current = recorder;
+
+    try {
+      const session = await api.createLiveSession(token, sessionTitle, sessionType);
+      sessionIdRef.current = session.id;
+      setRecording(true);
+      send({ type: "recording-state", recording: true });
+    } catch {
+      recorder.stop();
+      ctx.close();
+      audioContextRef.current = null;
+      mixDestRef.current = null;
+      recorderRef.current = null;
+    }
+  }, [recording, token, addToMix, sessionTitle, sessionType, send]);
+
+  const stopRecording = useCallback(async () => {
+    await stopRecordingInternal();
+    send({ type: "recording-state", recording: false });
+  }, [stopRecordingInternal, send]);
+
+  const toggleCaptions = useCallback(() => {
+    setCaptionsOn((prev) => !prev);
+  }, []);
+
+  useEffect(() => {
+    if (!captionsOn) return;
+    const Ctor = getSpeechRecognitionCtor();
+    if (!Ctor) return;
+
+    let stopped = false;
+
+    function start() {
+      const recognition = new Ctor!();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+      recognition.onresult = (event) => {
+        const result = event.results[event.results.length - 1];
+        const text = result[0].transcript.trim();
+        if (!text) return;
+        showCaption("local", displayName || "You", text);
+        send({ type: "caption", text, final: result.isFinal });
+      };
+      recognition.onend = () => {
+        if (!stopped) start(); // browser stops recognition after a pause — restart while enabled
+      };
+      recognition.onerror = () => {
+        /* transient (no-speech/network) — onend fires right after and restarts */
+      };
+      recognitionRef.current = recognition;
+      recognition.start();
+    }
+
+    start();
+
+    return () => {
+      stopped = true;
+      recognitionRef.current?.stop();
+      recognitionRef.current = null;
+    };
+  }, [captionsOn, displayName, send, showCaption]);
+
+  const leave = useCallback(async () => {
     setState("leaving");
+    if (recording) await stopRecordingInternal();
     cleanup();
     setState("left");
-  }, [cleanup]);
+  }, [cleanup, recording, stopRecordingInternal]);
 
-  const endForEveryone = useCallback(() => {
+  const endForEveryone = useCallback(async () => {
+    if (recording) await stopRecordingInternal();
     send({ type: "end-room" });
-  }, [send]);
+  }, [recording, stopRecordingInternal, send]);
 
   return {
     myPeerId: myPeerIdRef.current,
@@ -317,5 +538,11 @@ export function useMeetRoom(roomId: string, userId: string, displayName: string)
     error,
     leave,
     endForEveryone,
+    recording,
+    startRecording,
+    stopRecording,
+    captionsOn,
+    toggleCaptions,
+    captions,
   };
 }
