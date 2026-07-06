@@ -1,7 +1,7 @@
 """
 FERPA/GDPR data-minimization item from the thesis (Chapter 4, Layer 7): audio
 shouldn't be kept forever after a session is fully processed. This runs a periodic
-sweep that deletes the stored audio file (S3 or local) for any session that:
+sweep that deletes the stored local audio file for any session that:
   - is "completed" (processing succeeded — nothing to gain from keeping the audio
     for a failed session either, but leaving those alone in case someone wants to
     retry rather than re-upload)

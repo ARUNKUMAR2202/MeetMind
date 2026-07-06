@@ -11,10 +11,8 @@ class Settings:
     jwt_algorithm: str = "HS256"
     jwt_expires_minutes: int = int(os.getenv("JWT_EXPIRES_MINUTES", "1440"))
 
-    # AWS S3 (Layer 7 storage, per thesis Chapter 4). If unset, audio is stored on
-    # local disk under UPLOAD_DIR instead — fine for local dev, not for production.
-    aws_s3_bucket: str = os.getenv("AWS_S3_BUCKET", "")
-    aws_region: str = os.getenv("AWS_REGION", "us-east-1")
+    # Audio is stored on local disk under UPLOAD_DIR. Fine for local dev/single-instance
+    # deployments; a shared volume or object storage would be needed across replicas.
     upload_dir: str = os.getenv("UPLOAD_DIR", "./uploads")
 
     # Flip to "false" once you're testing against real audio + your own API keys.

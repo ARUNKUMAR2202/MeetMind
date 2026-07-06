@@ -49,21 +49,8 @@ session-status updates and video-room signaling (see `TASK_SPLIT.md`).
 
 ## Quickstart — option B: run each piece directly
 
-**Backend:**
-```bash
-cd backend
-python -m venv venv && .\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-cp .env.example .env        # defaults to USE_MOCK_PIPELINE=true, SQLite, in-memory pub/sub
-uvicorn app.main:app --reload --port 8000
-```
 
-**Frontend** (separate terminal):
-```bash
-cd frontend
-npm install
-cp .env.local.example .env.local
-npm run dev
+
 ```
 
 Open http://localhost:3000, create an account, and either:
@@ -158,7 +145,6 @@ behavior doesn't change based on your environment's `REDIS_URL`.
 
 FastAPI + SQLAlchemy (SQLite for local dev, Postgres via Docker Compose — both
 genuinely tested), Redis for pub/sub and room signaling, Next.js/React frontend with
-WebSocket updates and WebRTC video, OpenAI Whisper + GPT-4o, Pinecone for RAG, AWS S3
-for audio storage (falls back to local disk if `AWS_S3_BUCKET` is unset), JWT + httpOnly
-cookie auth (swap for Auth0 later — see `backend/app/auth.py`), slowapi for rate
-limiting.
+WebSocket updates and WebRTC video, OpenAI Whisper + GPT-4o, Pinecone for RAG, local
+disk for audio storage, JWT + httpOnly cookie auth (swap for Auth0 later — see
+`backend/app/auth.py`), slowapi for rate limiting.
