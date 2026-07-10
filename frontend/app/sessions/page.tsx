@@ -40,7 +40,7 @@ export default function SessionsPage() {
       {sessions.length === 0 ? (
         <p className="font-body text-muted">
           No sessions yet.{" "}
-          <Link href="/" className="text-signal hover:underline">
+          <Link href="/dashboard" className="text-signal hover:underline">
             Upload your first recording
           </Link>
           .

@@ -1,24 +1,4 @@
-"""
-Optional REAL diarization backend using pyannote.audio's pretrained pipeline — this is
-what actually approximates Zheng et al. (2022)'s tandem model / Du et al. (2022)'s SOND
-overlap handling, as opposed to diarization.py's default pause-based heuristic.
 
-Kept in its own module because pyannote + torch are heavy (~2GB+) and need a Hugging
-Face token — not something the lightweight mock-mode demo should require.
-
-Setup:
-  1. pip install -r requirements-real-diarization.txt   (from ai-pipeline/)
-  2. Accept the model terms at https://huggingface.co/pyannote/speaker-diarization-3.1
-  3. Create a read token at https://huggingface.co/settings/tokens and set
-     HUGGINGFACE_TOKEN in backend/.env
-  4. Set USE_REAL_DIARIZATION=true in backend/.env
-
-HONESTY NOTE: this has not been run against real audio anywhere in this codebase's
-development — the environment that built it has no network access to the Hugging Face
-Hub to download the pretrained weights. Treat this as a well-formed starting point that
-needs to be validated on a real machine before you rely on its output, not as
-production-verified code. This is intentionally the #1 item in TASK_SPLIT.md.
-"""
 from __future__ import annotations
 
 from .config import settings

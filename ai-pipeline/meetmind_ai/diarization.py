@@ -1,26 +1,4 @@
-"""
-Layer 2b — Speaker diarization (Zheng et al., 2022, "Tandem Multitask Training" +
-Du et al., 2022, "SOND" for overlapping speech).
 
-IMPORTANT / HONEST LIMITATION: OpenAI's Whisper API does not return speaker labels.
-Real tandem diarization (Zheng et al.) or SOND (Du et al.) require a dedicated model —
-typically pyannote.audio (Wav2Vec2-based, matches the paper's backbone) run locally or
-on a GPU worker, which is a heavier dependency than this starter installs by default.
-
-This module gives you:
-  1. A working DEFAULT implementation (`heuristic_diarize`) using pause-length and
-     turn-taking cues so the rest of the pipeline (action items, role summaries) has
-     *something* to attribute speakers to out of the box, and the demo runs end-to-end
-     without a GPU.
-  2. A clean seam (`Diarizer` protocol) to drop in a real model later — swap
-     `heuristic_diarize` for a `pyannote.audio.Pipeline` call without touching any
-     other file.
-
-TODO (AI pipeline owner): replace `heuristic_diarize` with a real pyannote.audio
-pipeline before the accuracy-testing phase (Chapter 5, Phase 5 in the thesis). Track
-diarization error rate against Du et al.'s CALLHOME benchmark (6.30% relative
-reduction) once real audio is available.
-"""
 from __future__ import annotations
 
 from typing import Optional, Protocol

@@ -1,14 +1,4 @@
-# Usage:
-#   cp backend/.env.example backend/.env   # fill in your real API keys
-#   docker compose up --build
-#
-# Frontend: http://localhost:3000
-# Backend:  http://localhost:8000  (docs at /docs)
-#
-# DATABASE_URL is overridden below to point at the `db` service regardless of what's
-# in backend/.env (which defaults to SQLite for non-Docker local dev). Everything
-# else (OPENAI_API_KEY, PINECONE_API_KEY, USE_MOCK_PIPELINE, etc.) comes from your
-# backend/.env file via env_file.
+
 
 services:
   db:
@@ -27,12 +17,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # Backs session-status pub/sub and video-room signaling once REDIS_URL is set
-  # (see backend/app/services/pubsub.py and room_manager.py) — required for the
-  # BackgroundTasks job queue's status updates to work correctly if you ever run
-  # more than one backend replica. Wired into the `backend` service below via
-  # REDIS_URL. Not yet used for the background job QUEUE itself (still FastAPI
-  # BackgroundTasks — see TASK_SPLIT.md for the Celery/RQ follow-up).
   redis:
     image: redis:7-alpine
     ports:

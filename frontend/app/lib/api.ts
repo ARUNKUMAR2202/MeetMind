@@ -182,9 +182,10 @@ export const api = {
     return `${wsBase}/ws/sessions/${sessionId}`;
   },
 
-  roomWsUrl: (roomId: string) => {
+  roomWsUrl: (roomId: string, userId: string, name: string) => {
     const wsBase = API_URL.replace(/^http/, "ws");
-    return `${wsBase}/ws/rooms/${roomId}`;
+    const params = new URLSearchParams({ user_id: userId, name });
+    return `${wsBase}/ws/rooms/${roomId}?${params.toString()}`;
   },
 };
 

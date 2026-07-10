@@ -9,10 +9,15 @@ export function Navbar() {
   return (
     <header className="border-b border-border">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4 sm:px-6">
-        <Link href="/" className="font-display text-base font-medium tracking-tight text-paper sm:text-lg">
+        <Link href={user ? "/dashboard" : "/"} className="font-display text-base font-medium tracking-tight text-paper sm:text-lg">
           MeetMind <span className="text-signal">AI</span>
         </Link>
         <nav className="flex items-center gap-2 font-body text-sm text-muted sm:gap-4">
+          {user && (
+            <Link href="/dashboard" className="hover:text-paper">
+              Dashboard
+            </Link>
+          )}
           <Link href="/meet" className="hover:text-paper">
             Meet
           </Link>

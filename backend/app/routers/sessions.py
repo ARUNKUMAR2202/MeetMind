@@ -6,9 +6,10 @@ from ..auth import get_current_user
 from ..config import settings
 from ..database import get_db
 from ..rate_limit import limiter
-from ..models import MeetingSession, User
+from ..models import MeetingSession, Room, User
 from ..schemas import SessionListItem, SessionOut
 from ..services.pipeline_service import run_pipeline_job
+from ..services.rooms import generate_room_code
 from ..services.storage_service import delete_audio, save_audio
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -75,11 +76,13 @@ def create_live_session(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Creates a session shell for a live video-conference meeting (see routers/rooms.py
-    for the signaling). No audio yet — the room page uploads the recorded mix via
-    POST /sessions/{id}/audio once the call ends, which is what actually kicks off
-    the pipeline. Status "live" distinguishes this from an "uploaded" file-based
-    session while the call is in progress.
+    Creates a session shell for a live video-conference meeting, plus a matching Room
+    row (same id) so the WebRTC signaling socket at /ws/rooms/{session_id} (see
+    routers/rooms.py) has something to attach to — the room page connects there
+    using this session's id as the room id. No audio yet — the room page uploads the
+    recorded mix via POST /sessions/{id}/audio once the call ends, which is what
+    actually kicks off the pipeline. Status "live" distinguishes this from an
+    "uploaded" file-based session while the call is in progress.
     """
     if payload.session_type not in _VALID_SESSION_TYPES:
         raise HTTPException(status_code=400, detail=f"session_type must be one of {_VALID_SESSION_TYPES}")
@@ -89,6 +92,10 @@ def create_live_session(
         status="live", audio_path="",
     )
     db.add(session)
+    db.flush()  # assigns session.id without committing, so the Room can reuse it
+
+    room = Room(id=session.id, code=generate_room_code(db), host_id=current_user.id, status="live")
+    db.add(room)
     db.commit()
     db.refresh(session)
     return SessionOut.from_model(session)

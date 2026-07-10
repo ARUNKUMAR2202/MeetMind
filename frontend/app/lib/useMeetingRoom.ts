@@ -37,7 +37,7 @@ interface SignalMessage {
   data?: { kind: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
 }
 
-export function useMeetingRoom(sessionId: string, token: string | null, displayName: string) {
+export function useMeetingRoom(sessionId: string, token: string | null, userId: string, displayName: string) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [participants, setParticipants] = useState<Record<string, RemoteParticipant>>({});
   const [micOn, setMicOn] = useState(true);
@@ -171,7 +171,7 @@ export function useMeetingRoom(sessionId: string, token: string | null, displayN
         recorder.start(1000);
         recorderRef.current = recorder;
 
-        const socket = new WebSocket(api.roomWsUrl(sessionId));
+        const socket = new WebSocket(api.roomWsUrl(sessionId, userId, displayName));
         socketRef.current = socket;
 
         socket.onmessage = async (event) => {

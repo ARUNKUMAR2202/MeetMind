@@ -20,7 +20,7 @@ export default function RoomPage({ params }: { params: { sessionId: string } }) 
   }, [user, token, params.sessionId]);
 
   const { localStream, participants, micOn, cameraOn, toggleMic, toggleCamera, state, error, endMeeting } =
-    useMeetingRoom(params.sessionId, token, user?.full_name ?? "Guest");
+    useMeetingRoom(params.sessionId, token, user?.id ?? "", user?.full_name ?? "Guest");
 
   async function handleEnd() {
     setEnding(true);
